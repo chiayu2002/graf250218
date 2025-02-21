@@ -181,9 +181,6 @@ def get_rays(H, W, focal, c2w):
     dirs = torch.stack([x, y, z], -1)
     # Rotate ray directions from camera frame to the world frame
     rays_d = torch.sum(dirs[..., np.newaxis, :] * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
-    # dirs = dirs.view(-1, 3)
-    # rays_d = torch.mm(c2w[:3,:3], dirs.t()).t()
-    # rays_d = rays_d.view(H, W, 3)
     # Translate camera frame's origin to the world frame. It is the origin of all rays.
     rays_o = c2w[:3,-1].expand(rays_d.shape) #torch.Size([128, 128, 3])
 

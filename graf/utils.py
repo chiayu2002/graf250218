@@ -111,9 +111,6 @@ def color_depth_map(depths, scale=None):
 
 
 def to_sphere(u, v):    #把2維座標轉換成3維笛卡爾座標
-    # result = u + 0.5
-    # if result >= 1:
-    #     result -= 1
     theta = 2 * np.pi * u
     phi = np.arccos(1 - 2 * v)
     cx = np.sin(phi) * np.cos(theta)

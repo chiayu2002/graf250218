@@ -130,7 +130,18 @@ class Generator(object):
         loc = loc * radius
         R = look_at(loc)[0]
 
-        RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
+        # 添加 y 軸 180 度旋轉矩陣
+        # 這會水平翻轉相機方向
+        R_y_180 = np.array([
+            [-1, 0, 0],
+            [0, 1, 0],
+            [0, 0, -1]
+        ])
+        
+        # 應用旋轉到旋轉部分（不影響平移部分）
+        R_rotated = R @ R_y_180
+
+        RT = np.concatenate([R_rotated, loc.reshape(3, 1)], axis=1)
         RT = torch.Tensor(RT.astype(np.float32))
 
         # expected_angle = u * 360
