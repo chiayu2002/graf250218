@@ -1,12 +1,12 @@
-expname: 4column250220_mod_ssp
+expname: 4column250224_vgg
 data:
-  datadir: [data/column/RS315]
+  datadir: [data/rename/RS615, data/rename/RS307, data/rename/RS330, data/rename/RS315]
   far: 4.5
   fov: 25
   imsize: 128  
   near: 1.5
   orthographic: False
-  use_default_rays : true
+  use_default_rays : False
   radius: 3.
   type: RS307_0_i2
   umax: 1.

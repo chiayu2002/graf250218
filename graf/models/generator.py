@@ -130,18 +130,18 @@ class Generator(object):
         loc = loc * radius
         R = look_at(loc)[0]
 
-        # 添加 y 軸 180 度旋轉矩陣
-        # 這會水平翻轉相機方向
-        R_y_180 = np.array([
-            [-1, 0, 0],
-            [0, 1, 0],
-            [0, 0, -1]
-        ])
-        
-        # 應用旋轉到旋轉部分（不影響平移部分）
-        R_rotated = R @ R_y_180
+        RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
 
-        RT = np.concatenate([R_rotated, loc.reshape(3, 1)], axis=1)
+        #  # 添加一個 180 度的 Z 軸旋轉 (對於 z 朝上的世界座標系統)
+        # # 這將使相機從物體的後方旋轉到前方 (或從前方旋轉到後方)
+        # R_z_180 = np.array([
+        #     [-1, 0, 0],
+        #     [0, -1, 0],
+        #     [0, 0, 1]  # z 軸保持不變，因為它是旋轉軸
+        # ])
+    
+        # # 旋轉相機方向，但保持相機位置不變
+        # RT[:3, :3] = RT[:3, :3] @ R_z_180
         RT = torch.Tensor(RT.astype(np.float32))
 
         # expected_angle = u * 360
@@ -156,6 +156,8 @@ class Generator(object):
         return batch_rays #torch.Size([2, 1024, 3])
     
     def sample_select_rays(self, u ,v):
+        # b = 0.
+        # h = 0.5
         pose = self.sample_select_pose(u, v)
         #print(f"trainpose:{pose}")
         sampler = self.val_ray_sampler if self.use_test_kwargs else self.ray_sampler  #如果 self.use_test_kwargs 為真，則使用 self.val_ray_sampler
