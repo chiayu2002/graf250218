@@ -110,9 +110,9 @@ class NeRF(nn.Module):
         repeat_times = h.shape[0] // label_embedding.shape[0]
         label_embedding = label_embedding.repeat(repeat_times, 1)
 
-        input_o, input_shape = torch.split(input_pts, [63, 256], dim=-1)
-        conditioned_shape = input_shape * label_embedding
-        h = torch.cat([input_o, conditioned_shape],dim=-1)
+        # input_o, input_shape = torch.split(input_pts, [63, 256], dim=-1)
+        # conditioned_shape = input_shape * label_embedding
+        # h = torch.cat([input_o, conditioned_shape],dim=-1)
         # h = input
         for i, l in enumerate(self.pts_linears):
             h = self.pts_linears[i](h)

@@ -13,7 +13,7 @@ sys.path.append('submodules')
 from graf.gan_training import Evaluator
 from graf.config import get_data, build_models, load_config, save_config
 from graf.utils import get_zdist
-from graf.train_step import compute_grad2, compute_loss, compute_cls_loss
+from graf.train_step import compute_grad2, compute_loss
 from graf.transforms import ImgToPatch
  
 from GAN_stability.gan_training.checkpoints_mod import CheckpointIO
@@ -27,11 +27,12 @@ def setup_directories(config):
 
 def initialize_training(config, device):
     # dataset
-    train_dataset, hwfr= get_data(config)
+    train_dataset, hwfr, K= get_data(config)
     if config['data']['orthographic']:
         hw_ortho = (config['data']['far']-config['data']['near'],) * 2
         hwfr[2] = hw_ortho
     config['data']['hwfr'] = hwfr
+    config['data']['K'] = K
     
     # train_loader
     train_loader = torch.utils.data.DataLoader(
@@ -46,12 +47,11 @@ def initialize_training(config, device):
     )
     
     # Create models
-    generator, discriminator, disvgg = build_models(config)
+    generator, discriminator = build_models(config)
     generator = generator.to(device)
     discriminator = discriminator.to(device)
-    disvgg = disvgg.to(device)
     
-    return train_loader, generator, discriminator, disvgg
+    return train_loader, generator, discriminator
 
 def main():
     parser = argparse.ArgumentParser()
@@ -71,17 +71,15 @@ def main():
     save_config(os.path.join(out_dir, 'config.yaml'), config)
     
     # 初始化model
-    train_loader, generator, discriminator, disvgg = initialize_training(config, device)
+    train_loader, generator, discriminator = initialize_training(config, device)
     
     # 優化器
     lr_g = config['training']['lr_g']
     lr_d = config['training']['lr_d']
     g_params = generator.parameters()
-    d_params = disvgg.parameters()
-    vgg_params = discriminator.parameters()
+    d_params = discriminator.parameters()
     g_optimizer = optim.RMSprop(g_params, lr=lr_g, alpha=0.99, eps=1e-8)
     d_optimizer = optim.RMSprop(d_params, lr=lr_d, alpha=0.99, eps=1e-8)
-    vgg_optimizer = optim.RMSprop(vgg_params, lr=lr_d, alpha=0.99, eps=1e-8)
 
     #get patch
     hwfr = config['data']['hwfr']
@@ -101,7 +99,6 @@ def main():
         discriminator=discriminator,
         g_optimizer=g_optimizer,
         d_optimizer=d_optimizer,
-        vgg_optimizer=vgg_optimizer,
         **generator.module_dict
     )
     
@@ -118,10 +115,10 @@ def main():
         epoch_idx += 1
         for x_real, label in tqdm(train_loader, desc=f"Epoch {epoch_idx}"):
             it += 1
+            
             generator.ray_sampler.iterations = it
             generator.train()
             discriminator.train()
-            disvgg.train()
 
             # Discriminator updates
             d_optimizer.zero_grad()
@@ -133,39 +130,27 @@ def main():
             d_real = discriminator(rgbs, label)
             dloss_real = compute_loss(d_real, 1)
             reg = 10. * compute_grad2(d_real, rgbs).mean()
-
+            
             z = zdist.sample((batch_size,))
             x_fake = generator(z, label)
             d_fake = discriminator(x_fake, label)
             dloss_fake = compute_loss(d_fake, 0)
 
             dloss = dloss_real + dloss_fake
-            dloss_all = dloss_real + dloss_fake + reg
+            dloss_all = dloss_real + dloss_fake +reg
             dloss_all.backward()
             d_optimizer.step()
 
-            # VGG updates
-            vgg_optimizer.zero_grad()
-
-            # 創建新的x_fake副本
-            with torch.no_grad():
-                x_fake_for_vgg = generator(z, label)  # 重新生成一份數據，避免共享計算圖
-
-            I_patch, f_patch = disvgg(x_fake_for_vgg, x_real)
-            cls_loss = compute_cls_loss(f_patch, I_patch, label)
-            cls_loss_value = cls_loss.item()  # 保存數值，不保存計算圖
-            cls_loss.backward()
-            vgg_optimizer.step()
-
             # Generators updates
+            if config['nerf']['decrease_noise']:
+                generator.decrease_nerf_noise(it)
+
             g_optimizer.zero_grad()
 
-            # 再次重新生成x_fake
-            x_fake_for_g = generator(z, label)
-            d_fake = discriminator(x_fake_for_g, label)
+            x_fake = generator(z, label)
+            d_fake = discriminator(x_fake, label)
 
-            # 使用數值而不是變量
-            gloss = compute_loss(d_fake, 1) + 2.0 * cls_loss_value
+            gloss = compute_loss(d_fake, 1)
             gloss.backward()
             g_optimizer.step()
                 
@@ -175,7 +160,6 @@ def main():
                     "loss/discriminator": dloss,
                     "loss/generator": gloss,
                     "loss/regularizer": reg,
-                    "loss/cls": cls_loss,
                     "iteration": it
                 })
 

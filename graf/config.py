@@ -39,17 +39,22 @@ def get_data(config):
         radius = tuple(float(r) for r in radius.split(','))
     dset.radius = radius
 
+    dset.K = np.array([
+        [dset.focal, 0, 0.5*W],
+        [0, dset.focal, 0.5*H],
+        [0, 0, 1]
+    ])
 
 
     print('Loaded {}'.format(dset_type), imsize, len(dset), [H,W,dset.focal,dset.radius], config['data']['datadir'])
-    return dset, [H,W,dset.focal,dset.radius]
+    return dset, [H,W,dset.focal,dset.radius], dset.K
 
 
 def build_models(config, disc=True):
     from argparse import Namespace
     from submodules.nerf_pytorch.run_nerf_mod import create_nerf
     from .models.generator import Generator
-    from .models.discriminator import Discriminator, Dvgg
+    from .models.discriminator import Discriminator
 
     config_nerf = Namespace(**config['nerf'])
     # Update config for NERF
@@ -93,9 +98,7 @@ def build_models(config, disc=True):
                         }
 
         discriminator = Discriminator(**disc_kwargs)
-
-    disvgg = Dvgg(num_classes = config['discriminator']['num_classes'])
-    return generator, discriminator, disvgg
+    return generator, discriminator
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
