@@ -98,7 +98,7 @@ def build_models(config, disc=True):
                         }
 
         discriminator = Discriminator(**disc_kwargs)
-    return generator, discriminator
+    return generator, discriminator, render_kwargs_train
 
 def load_config(config_path):
     with open(config_path, 'r') as f:

@@ -173,7 +173,9 @@ def create_nerf(args):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['raw_noise_std'] = 0.
 
-    return render_kwargs_train, render_kwargs_test, grad_vars, named_params
+    start = 0
+
+    return render_kwargs_train, render_kwargs_test, grad_vars, start 
 
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, pytest=False):

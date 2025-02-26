@@ -1,6 +1,6 @@
-expname: 4column250224_vgg
+expname: 4column250225_onlynerf_rs315
 data:
-  datadir: [data/rename/RS615, data/rename/RS307, data/rename/RS330, data/rename/RS315]
+  datadir: [data/rename/RS315]
   far: 4.5
   fov: 25
   imsize: 128  

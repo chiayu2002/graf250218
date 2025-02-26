@@ -56,15 +56,15 @@ class Generator(object):
                     index = int(label[i, 2].item())  # 得到第3個值
                     selected_u = index/360
                     if second_value == 0:
-                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[0])], dim=1)
+                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
                     elif second_value == 1:
-                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[1])], dim=1)
+                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
                     elif second_value == 2:
-                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[2])], dim=1)
+                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
                     elif second_value == 3:
-                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[3])], dim=1)
+                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
                     else:
-                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[4])], dim=1)
+                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
                     all_rays.append(rays)
                 rays = torch.cat(all_rays, dim=1)
 
@@ -84,7 +84,7 @@ class Generator(object):
                    rays_to_output(acc), extras
 
         rgb = rays_to_output(rgb)
-        return rgb
+        return rgb, rays
 
     def decrease_nerf_noise(self, it):
         end_it = 5000
@@ -161,8 +161,8 @@ class Generator(object):
         pose = self.sample_select_pose(u, v)
         #print(f"trainpose:{pose}")
         sampler = self.val_ray_sampler if self.use_test_kwargs else self.ray_sampler  #如果 self.use_test_kwargs 為真，則使用 self.val_ray_sampler
-        batch_rays, _, _ = sampler(self.H, self.W, self.focal, pose)
-        return batch_rays
+        batch_rays, select_inds, _ = sampler(self.H, self.W, self.focal, pose)
+        return batch_rays, select_inds
 
     def to(self, device):
         self.render_kwargs_train['network_fn'].to(device)
