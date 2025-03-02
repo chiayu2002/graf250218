@@ -6,6 +6,7 @@ import os
 from .datasets import *
 from .transforms import FlexGridRaySampler
 import yaml
+from .utils import polar_to_cartesian, look_at
 
 def to_tensor_and_normalize(x):
         return x * 2 - 1
@@ -39,15 +40,25 @@ def get_data(config):
         radius = tuple(float(r) for r in radius.split(','))
     dset.radius = radius
 
-    dset.K = np.array([
-        [dset.focal, 0, 0.5*W],
-        [0, dset.focal, 0.5*H],
-        [0, 0, 1]
-    ])
 
 
     print('Loaded {}'.format(dset_type), imsize, len(dset), [H,W,dset.focal,dset.radius], config['data']['datadir'])
-    return dset, [H,W,dset.focal,dset.radius], dset.K
+    return dset, [H,W,dset.focal,dset.radius]
+
+def get_render_poses(radius, angle_range=(0, 360), theta=0, N=40, swap_angles=False):   #用在eval的時候
+    poses = []
+    theta = max(0.1, theta)
+    for angle in np.linspace(angle_range[0],angle_range[1],N+1)[:-1]:
+        angle = max(0.1, angle)
+        if swap_angles:
+            loc = polar_to_cartesian(radius, theta, angle, deg=True)
+        else:
+            loc = polar_to_cartesian(radius, angle, theta, deg=True)
+        R = look_at(loc)[0]
+        RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
+        poses.append(RT)
+    return torch.from_numpy(np.stack(poses))
+
 
 
 def build_models(config, disc=True):
@@ -98,7 +109,7 @@ def build_models(config, disc=True):
                         }
 
         discriminator = Discriminator(**disc_kwargs)
-    return generator, discriminator, render_kwargs_train
+    return generator, discriminator
 
 def load_config(config_path):
     with open(config_path, 'r') as f:

@@ -56,15 +56,15 @@ class Generator(object):
                     index = int(label[i, 2].item())  # 得到第3個值
                     selected_u = index/360
                     if second_value == 0:
-                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
+                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[0])], dim=1)
                     elif second_value == 1:
-                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
+                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[1])], dim=1)
                     elif second_value == 2:
-                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
+                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[2])], dim=1)
                     elif second_value == 3:
-                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
+                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[3])], dim=1)
                     else:
-                        rays, select_inds = self.sample_select_rays(selected_u, v_list[0])
+                        rays = torch.cat([self.sample_select_rays(selected_u, v_list[4])], dim=1)
                     all_rays.append(rays)
                 rays = torch.cat(all_rays, dim=1)
 
@@ -84,7 +84,7 @@ class Generator(object):
                    rays_to_output(acc), extras
 
         rgb = rays_to_output(rgb)
-        return rgb, rays
+        return rgb
 
     def decrease_nerf_noise(self, it):
         end_it = 5000
@@ -113,39 +113,31 @@ class Generator(object):
     def sample_select_pose(self, u, v):   #計算旋轉矩陣(相機姿勢)
         # sample location on unit sphere
         #print("Type of self.v:", type(self.v))
-        loc = to_sphere(u, v)
-        # print("cx cy cz:",loc)
-        theta = 2 * np.pi * u
-        phi = np.arccos(1 - 2 * v)
-
-        # print(f"u: {u}, theta: {theta/np.pi*180.}度")
-        # print(f"v: {v}, phi: {phi/np.pi*180.}度")
-        # print(f"camera position: {loc}")
         
         # sample radius if necessary
         radius = self.radius
         if isinstance(radius, tuple):
             radius = np.random.uniform(*radius)
-
-        loc = loc * radius
-        R = look_at(loc)[0]
-
+        
+        if u == 0 and v == 0.5:  # 完全固定一個基準視角
+            # 明確定義相機位置
+            loc = np.array([radius, 0, 0])  # X軸正方向
+            
+            # 明確定義相機旋轉矩陣
+            # 確保X軸指向相機右方，Y軸指向相機上方，Z軸指向相機後方
+            R = np.array([
+                [0, 0, 1],  # 右方向
+                [1, 0, 0],  # 上方向 
+                [0, 1, 0]  # 後方向（面向原點）
+            ])
+        else:
+            # 正常的球面取樣
+            loc = to_sphere(u, v) * radius
+            R = look_at(loc)[0]
+        
         RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
-
-        #  # 添加一個 180 度的 Z 軸旋轉 (對於 z 朝上的世界座標系統)
-        # # 這將使相機從物體的後方旋轉到前方 (或從前方旋轉到後方)
-        # R_z_180 = np.array([
-        #     [-1, 0, 0],
-        #     [0, -1, 0],
-        #     [0, 0, 1]  # z 軸保持不變，因為它是旋轉軸
-        # ])
-    
-        # # 旋轉相機方向，但保持相機位置不變
-        # RT[:3, :3] = RT[:3, :3] @ R_z_180
         RT = torch.Tensor(RT.astype(np.float32))
-
-        # expected_angle = u * 360
-        # self.verify_camera_transform(RT, expected_angle)
+        
         return RT
     
     def sample_rays(self):   #設train用的rays
@@ -156,13 +148,11 @@ class Generator(object):
         return batch_rays #torch.Size([2, 1024, 3])
     
     def sample_select_rays(self, u ,v):
-        # b = 0.
-        # h = 0.5
         pose = self.sample_select_pose(u, v)
         #print(f"trainpose:{pose}")
         sampler = self.val_ray_sampler if self.use_test_kwargs else self.ray_sampler  #如果 self.use_test_kwargs 為真，則使用 self.val_ray_sampler
-        batch_rays, select_inds, _ = sampler(self.H, self.W, self.focal, pose)
-        return batch_rays, select_inds
+        batch_rays, _, _ = sampler(self.H, self.W, self.focal, pose)
+        return batch_rays
 
     def to(self, device):
         self.render_kwargs_train['network_fn'].to(device)

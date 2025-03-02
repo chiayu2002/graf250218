@@ -1,8 +1,8 @@
 #!/bin/bash
 #PBS -l select=1:ncpus=1:gpu_id=3
 #PBS -l place=shared
-#PBS -o output0220_mod_ssp.txt				
-#PBS -e error0220_mod_ssp.txt				
+#PBS -o output0302_column315.txt				
+#PBS -e error0302_column315.txt				
 #PBS -N nerf
 cd ~/graf250218												
 

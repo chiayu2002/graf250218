@@ -35,13 +35,13 @@ def run_network(inputs, viewdirs, fn, label, embed_fn, embeddirs_fn, features=No
     inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]]) #524288 3
     embedded = embed_fn(inputs_flat)
     #print(f"0embedded.shape: {embedded.shape}") 524288 63
-    # if features is not None:
-    #     # expand features to shape of flattened inputs  524288 256
-    #     features = features.unsqueeze(1).expand(-1, inputs.shape[1], -1).flatten(0, 1)
-    #     features_shape = features
+    if features is not None:
+        # expand features to shape of flattened inputs  524288 256
+        features = features.unsqueeze(1).expand(-1, inputs.shape[1], -1).flatten(0, 1)
+        features_shape = features
 
-    #     embedded = torch.cat([embedded, features_shape], -1)
-        #print(f"features: {features_shape}")  319
+        embedded = torch.cat([embedded, features_shape], -1)
+        # print(f"features: {features_shape}")  319
 
     if viewdirs is not None:
         input_dirs = viewdirs[:,None].expand(inputs.shape) #8192 64 3
@@ -127,7 +127,7 @@ def render(H, W, focal, label, chunk=1024*32, rays=None, c2w=None, ndc=True,
 def create_nerf(args):
     embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
 
-    # input_ch += args.feat_dim 
+    input_ch += args.feat_dim 
     input_ch_views = 0
     embeddirs_fn = None
     if args.use_viewdirs:
@@ -173,9 +173,7 @@ def create_nerf(args):
     render_kwargs_test['perturb'] = False
     render_kwargs_test['raw_noise_std'] = 0.
 
-    start = 0
-
-    return render_kwargs_train, render_kwargs_test, grad_vars, start 
+    return render_kwargs_train, render_kwargs_test, grad_vars, named_params
 
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, pytest=False):

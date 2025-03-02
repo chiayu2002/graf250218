@@ -118,14 +118,6 @@ def to_sphere(u, v):    #把2維座標轉換成3維笛卡爾座標
     cz = np.cos(phi)
     s = np.stack([cx, cy, cz])
 
-    # 打印調試信息
-    # print(f"u = {u}, theta = {theta * 180 / np.pi} 度")
-    # print(f"v = {v}, phi = {phi * 180 / np.pi} 度")
-    # print(f"球面坐標點: [{cx:.4f}, {cy:.4f}, {cz:.4f}]")
-    
-    # # 計算該點在 xy 平面的角度
-    # angle = np.arctan2(cy, cx) * 180 / np.pi
-    # print(f"to_sphere 產生的點的角度: {angle:.2f} 度")
     return s
 
 

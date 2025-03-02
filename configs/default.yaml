@@ -1,6 +1,6 @@
-expname: 4column250225_onlynerf_rs315
+expname: 4column250302_column_315
 data:
-  datadir: [data/rename/RS315]
+  datadir: [data/column/RS315]
   far: 4.5
   fov: 25
   imsize: 128  
