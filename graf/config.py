@@ -87,6 +87,10 @@ def build_models(config, disc=True):
                                      orthographic=config['data']['orthographic'])
 
     H, W, f, r = config['data']['hwfr']
+
+    initial_direction = [1.0, 0.0, 0.0]
+    initial_direction = torch.tensor(initial_direction, dtype=torch.float32)
+
     generator = Generator(H, W, f, r,
                           ray_sampler=ray_sampler,
                           render_kwargs_train=render_kwargs_train, render_kwargs_test=render_kwargs_test,
@@ -96,7 +100,8 @@ def build_models(config, disc=True):
                           range_v=(float(config['data']['vmin']), float(config['data']['vmax'])),
                           orthographic=config['data']['orthographic'],
                           v=config['data']['v'],
-                          use_default_rays=config['data']['use_default_rays']
+                          use_default_rays=config['data']['use_default_rays'],
+                          initial_direction=initial_direction
                           )
 
     discriminator = None
