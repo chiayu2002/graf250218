@@ -2,6 +2,8 @@ import argparse
 import os
 import time
 import copy
+import random
+import numpy as np
 import torch.optim as optim
 from tqdm import tqdm
 import torch
@@ -25,6 +27,40 @@ def setup_directories(config):
     os.makedirs(checkpoint_dir, exist_ok=True)
     return out_dir, checkpoint_dir
 
+def initialize_reference_images(generator, zdist, device):
+    """為每個柱子類型初始化參考圖像"""
+    generator.eval()
+    reference_images = {}
+    
+    # 初始化標準視角的射線（如果尚未初始化）
+    if not hasattr(generator, 'canonical_rays'):
+        canonical_pose = generator.sample_select_pose(0, 0.5)  # 正面視角
+        sampler = generator.val_ray_sampler
+        canonical_rays, _, _ = sampler(generator.H, generator.W, generator.focal, canonical_pose)
+        subsample_factor = 2
+        subsampled_rays = canonical_rays[:, ::subsample_factor, :]
+        generator.canonical_rays = subsampled_rays
+    
+    # 假設有4種柱子，標籤為0-3
+    for pillar_type in range(4):
+        # 固定種子確保一致性
+        torch.manual_seed(42 + pillar_type)
+        z = zdist.sample((1,)).to(device)
+        
+        # 對於參考圖像，使用完整標籤
+        label = torch.tensor([[pillar_type, 0, 0]]).to(device)
+        
+        # 渲染參考圖像
+        with torch.no_grad():
+            # 使用標準視角
+            rgb, _, _, _ = generator(z, label, generator.canonical_rays)
+        
+        # 儲存參考圖像，只使用柱子類型作為鍵
+        reference_images[pillar_type] = rgb.detach()
+    
+    generator.train()
+    return reference_images
+
 def initialize_training(config, device):
     # dataset
     train_dataset, hwfr= get_data(config)
@@ -38,7 +74,7 @@ def initialize_training(config, device):
         train_dataset,
         batch_size=config['training']['batch_size'],
         num_workers=config['training']['nworkers'],
-        shuffle=True, 
+        shuffle=False, 
         pin_memory=True,
         sampler=None, 
         drop_last=True,
@@ -56,6 +92,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default='configs/default.yaml')
     args = parser.parse_args()
+
+    # 設置固定的隨機種子
+    random.seed(42)
+    np.random.seed(42)
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
     
     # load config
     config = load_config(args.config)
@@ -103,6 +145,13 @@ def main():
     
     zdist = get_zdist(config['z_dist']['type'], config['z_dist']['dim'], device=device)
 
+    # 在這裡初始化參考圖像
+    # torch.manual_seed(42)
+    reference_images = initialize_reference_images(generator, zdist, device)
+    
+    # 將參考圖像設置到生成器
+    generator.reference_images = reference_images
+
     # Evaluator
     evaluator = Evaluator(fid_every > 0, generator, zdist, None,
                           batch_size=batch_size, device=device, inception_nsamples=33)
@@ -130,6 +179,7 @@ def main():
             dloss_real = compute_loss(d_real, 1)
             reg = 10. * compute_grad2(d_real, rgbs).mean()
             
+            # torch.manual_seed(42 + it)
             z = zdist.sample((batch_size,))
             x_fake = generator(z, label)
             d_fake = discriminator(x_fake, label)
@@ -146,10 +196,18 @@ def main():
 
             g_optimizer.zero_grad()
 
+            # torch.manual_seed(42 + it)
+            z = zdist.sample((batch_size,))
             x_fake = generator(z, label)
             d_fake = discriminator(x_fake, label)
 
             gloss = compute_loss(d_fake, 1)
+
+            # if it % 10 == 0:  
+            #     consistency_loss = generator.compute_consistency_loss(z, label)
+            #     consistency_weight = 0.5  # 可以根據訓練進度調整
+            #     gloss = gloss + consistency_weight * consistency_loss
+
             gloss.backward()
             g_optimizer.step()
                 
@@ -158,13 +216,14 @@ def main():
                 wandb.log({
                     "loss/discriminator": dloss,
                     "loss/generator": gloss,
+                    # "loss/consistency": consistency_loss.item(),
                     "loss/regularizer": reg,
                     "iteration": it
                 })
 
             # (ii) Sample if necessary
             if ((it % config['training']['sample_every']) == 0) or ((it < 500) and (it % 100 == 0)):
-
+                # torch.manual_seed(42)
                 plist = []
                 angle_positions = [(i/8, 0.5) for i in range(8)] 
                 ztest = zdist.sample((batch_size,))
