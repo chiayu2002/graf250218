@@ -22,6 +22,7 @@ class Generator(object):
         self.use_default_rays = use_default_rays
         coords = torch.from_numpy(np.stack(np.meshgrid(np.arange(H), np.arange(W), indexing='ij'), -1))
         self.coords = coords.view(-1, 2)
+        self.initial_direction = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32)
 
         self.ray_sampler = ray_sampler   #FlexGridRaySampler
         self.val_ray_sampler = FullRaySampler(orthographic=orthographic)
@@ -74,7 +75,7 @@ class Generator(object):
         render_kwargs = dict(render_kwargs)        # copy
 
         render_kwargs['features'] = z
-        rgb, disp, acc, extras, angles = render(self.H, self.W, self.focal, label, chunk=self.chunk, rays=rays,
+        rgb, disp, acc, extras = render(self.H, self.W, self.focal, label, chunk=self.chunk, rays=rays,
                                         **render_kwargs)
 
         rays_to_output = lambda x: x.view(len(x), -1) * 2 - 1      # (BxN_samples)xC
@@ -85,12 +86,7 @@ class Generator(object):
                    rays_to_output(acc), extras
 
         rgb = rays_to_output(rgb)
-        resized_angles = []
-        for tensor in angles:
-            resized_tensor = tensor[:1024, :]
-            resized_angles.append(resized_tensor)
-            combined_angles = torch.cat(resized_angles, dim=0)
-        return rgb, rays, combined_angles
+        return rgb
 
     def decrease_nerf_noise(self, it):
         end_it = 5000
@@ -132,6 +128,60 @@ class Generator(object):
         RT = torch.Tensor(RT.astype(np.float32))
         
         return RT
+    
+    def fixed_world_coordinate_system(self, u, v, radius=1.0):
+        """
+        創建一個固定的世界座標系統，其中 X 軸正方向對應0度
+        
+        參數:
+            u: 水平參數 (0-1)，對應 0-360 度，0 表示正X軸方向
+            v: 垂直參數 (0-1)，控制與 XY 平面的夾角
+            radius: 相機距離原點的距離
+        """
+        # 將角度轉換為弧度 (u=0 表示0度，u=0.5表示180度，u=1表示360度)
+        theta = 2 * np.pi * u
+        phi = np.arccos(1 - 2 * v)
+        
+        # 計算相機在球面上的位置
+        # 當 u=0 時，相機在正X軸方向
+        x = radius * np.sin(phi) * np.cos(theta)
+        y = radius * np.sin(phi) * np.sin(theta)
+        z = radius * np.cos(phi)
+        
+        # 相機位置
+        camera_pos = np.array([x, y, z])
+        
+        # 視線方向 - 從相機指向原點
+        view_dir = camera_pos / np.linalg.norm(camera_pos)
+        
+        # 上方向 - 固定為全局 Z 軸
+        up = np.array([0, 0, 1])
+        
+        # 計算相機坐標系中的 x 軸 (右方向)
+        x_axis = np.cross(up, view_dir)
+        if np.linalg.norm(x_axis) < 1e-5:
+            # 如果相機位於 Z 軸上，使用固定的 X 軸
+            if z > 0:  # 在 Z 軸上方
+                x_axis = np.array([1, 0, 0])
+            else:      # 在 Z 軸下方
+                x_axis = np.array([-1, 0, 0])
+        else:
+            x_axis = x_axis / np.linalg.norm(x_axis)
+        
+        # 計算相機坐標系中的 y 軸 (上方向)
+        y_axis = np.cross(view_dir, x_axis)
+        y_axis = y_axis / np.linalg.norm(y_axis)
+        
+        # z 軸是視線方向
+        z_axis = view_dir
+        
+        # 構建旋轉矩陣
+        r_mat = np.stack([x_axis, y_axis, z_axis], axis=1)
+        
+        # 構建變換矩陣
+        RT = np.concatenate([r_mat, camera_pos.reshape(3, 1)], axis=1)
+        
+        return torch.tensor(RT, dtype=torch.float32)
     
     def sample_rays(self):   #設train用的rays
         pose = self.sample_pose()

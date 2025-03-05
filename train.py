@@ -40,7 +40,7 @@ def initialize_training(config, device):
         train_dataset,
         batch_size=config['training']['batch_size'],
         num_workers=config['training']['nworkers'],
-        shuffle=False, 
+        shuffle=True, 
         pin_memory=True,
         sampler=None, 
         drop_last=True,
@@ -129,16 +129,13 @@ def main():
             rgbs.requires_grad_(True)
 
             z = zdist.sample((batch_size,))
-            x_fake, rays, angles = generator(z, label)
-            # rays_first = rays[0]
-            # real_tensor = torch.cat([rgbs, rays_first], dim=1)
+            x_fake = generator(z, label)
 
             d_real = discriminator(rgbs, label)
             dloss_real = compute_loss(d_real, 1)
             reg = 10. * compute_grad2(d_real, rgbs).mean()
             
-            # angles_first = angles[:, :3]
-            # fake_tensor = torch.cat([x_fake, angles_first], dim=1)
+
             d_fake = discriminator(x_fake, label)
             dloss_fake = compute_loss(d_fake, 0)
 
@@ -154,19 +151,13 @@ def main():
             g_optimizer.zero_grad()
 
             z = zdist.sample((batch_size,))
-            x_fake, rays, angles = generator(z, label)
-            reshaped_rays = torch.cat([rays[0], rays[1]], dim=1)
-            # rays_second_dim = rays[1] 
-            # angles_second = angles[:, 3:]
-            mse_loss = F.mse_loss(reshaped_rays, angles)
-            # angles_first = angles[:, :3]
-            # fake_tensor = torch.cat([x_fake, angles_first], dim=1)
+            x_fake= generator(z, label)
             d_fake = discriminator(x_fake, label)
 
             gloss = compute_loss(d_fake, 1) 
-            all_loss = gloss + mse_loss
 
-            all_loss.backward()
+
+            gloss.backward()
             g_optimizer.step()
                 
             # wandb
@@ -174,7 +165,6 @@ def main():
                 wandb.log({
                     "loss/discriminator": dloss,
                     "loss/generator": gloss,
-                    "loss/mse": mse_loss,
                     "loss/regularizer": reg,
                     "iteration": it
                 })
@@ -186,11 +176,19 @@ def main():
                 angle_positions = [(i/8, 0.5) for i in range(8)] 
                 ztest = zdist.sample((batch_size,))
                 label_test = torch.tensor([[0] if i < 4 else [0] for i in range(batch_size)])
+
+                save_dir = os.path.join(out_dir, 'poses')
+                os.makedirs(save_dir, exist_ok=True)
+
                 for i, (u, v) in enumerate(angle_positions):
                     # print(f"指定角度:{u}, 轉換後角度:{position_angle}")
                     poses = generator.sample_select_pose(u ,v)
                     plist.append(poses)
-                    ptest = torch.stack(plist)
+                ptest = torch.stack(plist)
+
+                poses_array = np.array([p.detach().cpu().numpy() for p in plist])
+                save_path_np = os.path.join(save_dir, f'poses_iter_{it}.npy')
+                np.save(save_path_np, poses_array)
 
                 rgb, depth, acc = evaluator.create_samples(ztest.to(device), label_test, ptest)
                     

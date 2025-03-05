@@ -27,11 +27,7 @@ def batchify(fn, chunk):
         return fn
     def ret(inputs, label):
         label_oftype = label[:,0]
-        results = [fn(inputs[i:i+chunk], label_oftype) for i in range(0, inputs.shape[0], chunk)]
-        tensors = [result[0] for result in results]  # 提取所有张量
-        angles = [result[1] for result in results]
-        cat_tensors = torch.cat(tensors, 0)
-        return cat_tensors, angles
+        return torch.cat([fn(inputs[i:i+chunk], label_oftype) for i in range(0, inputs.shape[0], chunk)], 0)
     return ret
 
 
@@ -54,9 +50,8 @@ def run_network(inputs, viewdirs, fn, label, embed_fn, embeddirs_fn, features=No
         embedded = torch.cat([embedded, embedded_dirs], -1)  #524288 346
 
     outputs_flat = batchify(fn, netchunk)(embedded, label)
-    tensor_output, angle_output = outputs_flat
-    outputs = torch.reshape(tensor_output, list(inputs.shape[:-1]) + [tensor_output.shape[-1]])  #8192 64 4
-    return outputs, angle_output
+    outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])  #8192 64 4
+    return outputs
 
 
 def batchify_rays(rays_flat, label, chunk=1024*32, **kwargs):  #批次render rays
@@ -66,14 +61,14 @@ def batchify_rays(rays_flat, label, chunk=1024*32, **kwargs):  #批次render ray
     for i in range(0, rays_flat.shape[0], chunk):
         if features is not None:
             kwargs['features'] = features[i:i+chunk]
-        ret, angles = render_rays(rays_flat[i:i+chunk],label,  **kwargs)
+        ret= render_rays(rays_flat[i:i+chunk],label,  **kwargs)
         for k in ret:
             if k not in all_ret:
                 all_ret[k] = []
             all_ret[k].append(ret[k])
 
     all_ret = {k : torch.cat(all_ret[k], 0) for k in all_ret}
-    return all_ret, angles
+    return all_ret
 
 
 def render(H, W, focal, label, chunk=1024*32, rays=None, c2w=None, ndc=True,
@@ -119,7 +114,7 @@ def render(H, W, focal, label, chunk=1024*32, rays=None, c2w=None, ndc=True,
         kwargs['features'] = kwargs['features'].unsqueeze(1).expand(-1, N_rays, -1).flatten(0, 1)
 
     # Render and reshape
-    all_ret, angles = batchify_rays(rays, label, chunk, **kwargs)
+    all_ret = batchify_rays(rays, label, chunk, **kwargs)
     for k in all_ret:
         k_sh = list(sh[:-1]) + list(all_ret[k].shape[1:])
         all_ret[k] = torch.reshape(all_ret[k], k_sh)
@@ -127,7 +122,7 @@ def render(H, W, focal, label, chunk=1024*32, rays=None, c2w=None, ndc=True,
     k_extract = ['rgb_map', 'disp_map', 'acc_map']
     ret_list = [all_ret[k] for k in k_extract]
     ret_dict = {k : all_ret[k] for k in all_ret if k not in k_extract}
-    return ret_list[0], ret_list[1], ret_list[2], ret_dict, angles
+    return ret_list + [ret_dict]
 
 def create_nerf(args):
     embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
@@ -262,7 +257,7 @@ def render_rays(ray_batch,
 
 
 #     raw = run_network(pts)
-    raw, angles = network_query_fn(pts, viewdirs, network_fn, label, features)
+    raw = network_query_fn(pts, viewdirs, network_fn, label, features)
     rgb_map, disp_map, acc_map, weights, depth_map = raw2outputs(raw, z_vals, rays_d, raw_noise_std, pytest=pytest)
 
 #     if N_importance > 0:
@@ -296,4 +291,4 @@ def render_rays(ray_batch,
         if (torch.isnan(ret[k]).any() or torch.isinf(ret[k]).any()) and DEBUG:
             print(f"! [Numerical Error] {k} contains nan or inf.")
 
-    return ret, angles
+    return ret

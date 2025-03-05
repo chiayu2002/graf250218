@@ -76,8 +76,6 @@ class NeRF(nn.Module):
         self.skips = skips
         self.use_viewdirs = use_viewdirs
         self.numclasses = numclasses
-
-        # self.condition_network = ConditionNetwork(numclasses, W)
         
         self.pts_linears = nn.ModuleList(
             [nn.Linear(input_ch, W)] + [nn.Linear(W, W) if i not in self.skips else nn.Linear(W + input_ch, W) for i in range(D-1)])
@@ -98,7 +96,6 @@ class NeRF(nn.Module):
             self.feature_linear = nn.Linear(W, W)
             self.alpha_linear = nn.Linear(W, 1)
             self.rgb_linear = nn.Linear(W//2, 3)
-            self.angle_linear = nn.Linear(W//2, 6)
         else:
             self.output_linear = nn.Linear(W, output_ch)
 
@@ -114,7 +111,6 @@ class NeRF(nn.Module):
         input_o, input_shape = torch.split(input_pts, [63, 256], dim=-1)
         conditioned_shape = input_shape * label_embedding
         h = torch.cat([input_o, conditioned_shape],dim=-1)
-        # h = input
         for i, l in enumerate(self.pts_linears):
             h = self.pts_linears[i](h)
             h = relu(h)
@@ -125,7 +121,6 @@ class NeRF(nn.Module):
             alpha = self.alpha_linear(h)
             feature = self.feature_linear(h)
 
-            # conditioned_feature = feature * label_embedding_repeated
             h = torch.cat([feature, input_views], -1)
         
             for i, l in enumerate(self.views_linears):
@@ -133,8 +128,7 @@ class NeRF(nn.Module):
                 h = relu(h)
 
             rgb = self.rgb_linear(h)
-            angle = self.angle_linear(h)
-            outputs = torch.cat([rgb, alpha], -1), angle
+            outputs = torch.cat([rgb, alpha], -1)
         else:
             outputs = self.output_linear(h)
 
@@ -296,42 +290,3 @@ def sample_pdf(bins, weights, N_samples, det=False, pytest=False):
     samples = bins_g[...,0] + t * (bins_g[...,1]-bins_g[...,0])
 
     return samples
-
-class ConditionNetwork(nn.Module):
-    def __init__(self, num_classes, embed_dim, dropout_rate=0.1):
-        super().__init__()
-        self.embedding = nn.Embedding(num_classes, embed_dim)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(dropout_rate)
-        
-        # 特徵增強網絡
-        self.feature_enhance = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2),
-            nn.LayerNorm(embed_dim * 2),
-            nn.GELU(),  # 使用 GELU 替代 ReLU
-            nn.Dropout(dropout_rate),
-            
-            nn.Linear(embed_dim * 2, embed_dim * 2),  # 加入一層
-            nn.LayerNorm(embed_dim * 2),
-            nn.GELU(),
-            nn.Dropout(dropout_rate),
-            
-            nn.Linear(embed_dim * 2, embed_dim),
-            nn.LayerNorm(embed_dim)
-        )
-        
-        self._init_weights()
-        
-    def _init_weights(self):
-        nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
-        
-    def forward(self, label, repeat_size):
-        embed = self.embedding(label)
-        embed = self.norm(embed)
-        embed = self.dropout(embed)
-        enhanced_embed = self.feature_enhance(embed)
-            
-        if repeat_size > enhanced_embed.shape[0]:
-            enhanced_embed = enhanced_embed.repeat(repeat_size // enhanced_embed.shape[0], 1)
-            
-        return enhanced_embed
