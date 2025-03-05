@@ -1,6 +1,6 @@
-expname: 4column250302_column_315
+expname: 4column250305_307_cat
 data:
-  datadir: [data/column/RS315]
+  datadir: [data/column/RS307]
   far: 4.5
   fov: 25
   imsize: 128  

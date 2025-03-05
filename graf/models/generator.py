@@ -44,17 +44,6 @@ class Generator(object):
 
         self.render = partial(render, H=self.H, W=self.W, focal=self.focal, chunk=self.chunk)
 
-        # 初始化標準視角的射線
-        # canonical_pose = self.sample_select_pose(0, 0.5)  # 正面視角
-        # sampler = self.val_ray_sampler
-        # canonical_rays, _, _ = sampler(self.H, self.W, self.focal, canonical_pose)
-        # subsample_factor = 8
-        # subsampled_rays = canonical_rays[:, ::subsample_factor, :]
-        # self.canonical_rays = subsampled_rays
-        
-        # self.reference_images = reference_images  # 字典，鍵為標籤，值為參考圖像
-        # self.consistency_weight = 0.5  # 一致性損失的權重
-
     def __call__(self, z, label, rays=None):
         bs = z.shape[0]
         if rays is None:
@@ -126,90 +115,7 @@ class Generator(object):
         RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
         RT = torch.Tensor(RT.astype(np.float32))
         return RT
-    
-    def fixed_world_coordinate_system(self, u, v, radius=1.0):
-        """
-        創建一個固定的世界座標系統，其中 X 軸與訓練模型的起始點對齊
-        
-        參數:
-            angle_degrees: 水平角度 (0-360 度)，從 X 軸正方向開始
-            elevation_degrees: 仰角 (0-90 度)，從 XY 平面向上測量
-            radius: 相機距離原點的距離
-        """
-        initial_dir = self.initial_direction.cpu().numpy()
-        initial_dir = initial_dir / np.linalg.norm(initial_dir)
 
-        # 將角度轉換為弧度
-        theta = 2 * np.pi * u
-        phi = np.arccos(1 - 2 * v)
-
-        if np.allclose(initial_dir, [1, 0, 0]):
-            # 如果初始方向已經是 X 軸，不需要額外旋轉
-            align_matrix = np.eye(3)
-        else:
-            # 計算旋轉軸（初始方向與 X 軸的叉積）
-            rotation_axis = np.cross([1, 0, 0], initial_dir)
-            if np.linalg.norm(rotation_axis) < 1e-5:
-                # 如果初始方向與 X 軸平行但方向相反
-                align_matrix = np.diag([-1, -1, 1])  # 繞 Z 軸旋轉 180 度
-            else:
-                # 標準化旋轉軸
-                rotation_axis = rotation_axis / np.linalg.norm(rotation_axis)
-                # 計算旋轉角度（初始方向與 X 軸的夾角）
-                cos_angle = np.dot(initial_dir, [1, 0, 0])
-                angle = np.arccos(np.clip(cos_angle, -1.0, 1.0))
-                # 使用羅德里格斯旋轉公式計算旋轉矩陣
-                K = np.array([
-                    [0, -rotation_axis[2], rotation_axis[1]],
-                    [rotation_axis[2], 0, -rotation_axis[0]],
-                    [-rotation_axis[1], rotation_axis[0], 0]
-                ])
-                align_matrix = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * (K @ K)
-    
-        
-        # 計算相機在球面上的位置
-        # 這裡 X 軸是您模型的起始點方向
-        x = radius * np.sin(phi) * np.cos(theta)
-        y = radius * np.sin(phi) * np.sin(theta)
-        z = radius * np.cos(phi)
-        
-        # 相機位置向量
-        pos_vector = np.array([x, y, z])
-        
-        # 使用對齊矩陣調整相機位置，使其相對於初始方向
-        camera_pos = align_matrix @ pos_vector
-        
-        # 視線方向 - 指向原點
-        view_dir = camera_pos / np.linalg.norm(camera_pos)
-        
-        # 上方向 - 固定為全局 Z 軸
-        up = np.array([0, 0, 1])
-        
-        # 計算相機坐標系中的 x 軸 (右方向)
-        x_axis = np.cross(up, view_dir)
-        if np.linalg.norm(x_axis) < 1e-5:
-            # 如果相機位於 Z 軸上，使用固定的 X 軸
-            if z > 0:  # 在 Z 軸上方
-                x_axis = np.array([1, 0, 0])
-            else:      # 在 Z 軸下方
-                x_axis = np.array([-1, 0, 0])
-        else:
-            x_axis = x_axis / np.linalg.norm(x_axis)
-        
-        # 計算相機坐標系中的 y 軸 (上方向)
-        y_axis = np.cross(view_dir, x_axis)
-        y_axis = y_axis / np.linalg.norm(y_axis)
-        
-        # z 軸是視線方向
-        z_axis = view_dir
-        
-        # 構建旋轉矩陣
-        r_mat = np.stack([x_axis, y_axis, z_axis], axis=1)
-        
-        # 構建變換矩陣
-        RT = np.concatenate([r_mat, camera_pos.reshape(3, 1)], axis=1)
-        
-        return torch.tensor(RT, dtype=torch.float32)
 
     def sample_select_pose(self, u, v):   #計算旋轉矩陣(相機姿勢)
         # sample location on unit sphere
@@ -217,8 +123,6 @@ class Generator(object):
         
         # sample radius if necessary
         radius = self.radius
-        if isinstance(radius, tuple):
-            radius = np.random.uniform(*radius)
         
         # 正常的球面取樣
         loc = to_sphere(u, v) * radius
@@ -226,7 +130,6 @@ class Generator(object):
         
         RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
         RT = torch.Tensor(RT.astype(np.float32))
-        # RT = self.fixed_world_coordinate_system(u, v, radius)
         
         return RT
     
@@ -257,40 +160,5 @@ class Generator(object):
         self.use_test_kwargs = True
         self.render_kwargs_train['network_fn'].eval()
 
-    def compute_consistency_loss(self, z, label):
-        """單獨計算一致性損失的方法"""
-        if self.reference_images is None:
-            return 0.0
-            
-        with torch.cuda.amp.autocast(enabled=True):
-            consistency_loss = 0
-            consistency_count = 0
-            
-            for i, l in enumerate(label):
-                pillar_type = int(l[0].item())
-                
-                if pillar_type in self.reference_images:
-                    ref_label = torch.tensor([[pillar_type, 0, 0]]).to(label.device)
-                    
-                    # 從固定視角渲染
-                    subsample_factor = 1  # 採樣率降低4倍
-                    subsampled_rays = self.canonical_rays[:, ::subsample_factor, :]
-                    render_kwargs = self.render_kwargs_train.copy()
-                    render_kwargs['features'] = z[i:i+1]
-                    
-                    ref_rgb, _, _, _ = render(self.H//subsample_factor, self.W//subsample_factor, 
-                            self.focal/subsample_factor,
-                            ref_label, chunk=self.chunk, rays=subsampled_rays,
-                            **render_kwargs)
-                    ref_rgb = ref_rgb.view(len(ref_rgb), -1) * 2 - 1
-                    
-                    # 比較參考圖像
-                    ref_img = self.reference_images[pillar_type].to(ref_rgb.device)
-                    consistency_loss += F.mse_loss(ref_rgb, ref_img)
-                    consistency_count += 1
-            
-            if consistency_count > 0:
-                return consistency_loss / consistency_count
-            return 0.0
-        
+
     
