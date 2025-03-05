@@ -20,13 +20,6 @@ class Generator(object):
         self.chunk = chunk
         self.v = v
         self.use_default_rays = use_default_rays
-
-        # 設置初始方向 (X 軸)
-        if initial_direction is None:
-            self.initial_direction = torch.tensor([1.0, 0.0, 0.0], dtype=torch.float32)
-        else:
-            self.initial_direction = initial_direction
-            
         coords = torch.from_numpy(np.stack(np.meshgrid(np.arange(H), np.arange(W), indexing='ij'), -1))
         self.coords = coords.view(-1, 2)
 
@@ -52,15 +45,15 @@ class Generator(object):
         self.render = partial(render, H=self.H, W=self.W, focal=self.focal, chunk=self.chunk)
 
         # 初始化標準視角的射線
-        canonical_pose = self.sample_select_pose(0, 0.5)  # 正面視角
-        sampler = self.val_ray_sampler
-        canonical_rays, _, _ = sampler(self.H, self.W, self.focal, canonical_pose)
-        subsample_factor = 8
-        subsampled_rays = canonical_rays[:, ::subsample_factor, :]
-        self.canonical_rays = subsampled_rays
+        # canonical_pose = self.sample_select_pose(0, 0.5)  # 正面視角
+        # sampler = self.val_ray_sampler
+        # canonical_rays, _, _ = sampler(self.H, self.W, self.focal, canonical_pose)
+        # subsample_factor = 8
+        # subsampled_rays = canonical_rays[:, ::subsample_factor, :]
+        # self.canonical_rays = subsampled_rays
         
-        self.reference_images = reference_images  # 字典，鍵為標籤，值為參考圖像
-        self.consistency_weight = 0.5  # 一致性損失的權重
+        # self.reference_images = reference_images  # 字典，鍵為標籤，值為參考圖像
+        # self.consistency_weight = 0.5  # 一致性損失的權重
 
     def __call__(self, z, label, rays=None):
         bs = z.shape[0]
@@ -92,7 +85,7 @@ class Generator(object):
         render_kwargs = dict(render_kwargs)        # copy
 
         render_kwargs['features'] = z
-        rgb, disp, acc, extras = render(self.H, self.W, self.focal, label, chunk=self.chunk, rays=rays,
+        rgb, disp, acc, extras, angles = render(self.H, self.W, self.focal, label, chunk=self.chunk, rays=rays,
                                         **render_kwargs)
 
         rays_to_output = lambda x: x.view(len(x), -1) * 2 - 1      # (BxN_samples)xC
@@ -103,7 +96,12 @@ class Generator(object):
                    rays_to_output(acc), extras
 
         rgb = rays_to_output(rgb)
-        return rgb
+        resized_angles = []
+        for tensor in angles:
+            resized_tensor = tensor[:1024, :]
+            resized_angles.append(resized_tensor)
+            combined_angles = torch.cat(resized_angles, dim=0)
+        return rgb, rays, combined_angles
 
     def decrease_nerf_noise(self, it):
         end_it = 5000
@@ -129,61 +127,6 @@ class Generator(object):
         RT = torch.Tensor(RT.astype(np.float32))
         return RT
     
-    # def fixed_coordinate_system(self, u, v, radius=1.0):
-    #     """
-    #     创建一个固定的坐标系统，确保每次调用时结果都相同
-        
-    #     参数:
-    #         u: 水平参数 (0-1)，控制绕Z轴的旋转
-    #         v: 垂直参数 (0-1)，控制与Z轴的夹角
-    #         radius: 距离原点的距离
-            
-    #     返回:
-    #         RT: 4x4变换矩阵的前3行，格式为torch.Tensor
-    #     """
-    #     # 将u,v转换为球坐标
-    #     theta = 2 * np.pi * u     # 水平角度 (0-2π)
-    #     phi = np.arccos(1 - 2 * v)  # 垂直角度 (0-π)
-        
-    #     # 计算相机位置
-    #     x = radius * np.sin(phi) * np.cos(theta)
-    #     y = radius * np.sin(phi) * np.sin(theta)
-    #     z = radius * np.cos(phi)
-    #     position = np.array([x, y, z])
-        
-    #     # 根据原始代码的定义计算视图矩阵
-    #     # 从原始look_at函数的实现，我们知道:
-    #     # z_axis是从相机指向目标(这里是原点)的方向
-    #     # 全局上方向为[0, 0, 1]
-        
-    #     # 1. 计算z轴方向 (从相机指向原点)
-    #     z_axis = position  # 相机看向原点
-    #     z_axis = z_axis / np.linalg.norm(z_axis)
-        
-    #     # 2. 定义全局上方向
-    #     up = np.array([0, 0, 1])
-        
-    #     # 3. 计算x轴方向 (右方向)
-    #     x_axis = np.cross(up, z_axis)
-    #     if np.linalg.norm(x_axis) < 1e-6:
-    #         # 如果相机在Z轴上，使用固定的右方向
-    #         x_axis = np.array([1, 0, 0])
-    #     else:
-    #         x_axis = x_axis / np.linalg.norm(x_axis)
-        
-    #     # 4. 计算y轴方向 (上方向)
-    #     y_axis = np.cross(z_axis, x_axis)
-    #     y_axis = y_axis / np.linalg.norm(y_axis)
-        
-    #     # 5. 构建旋转矩阵
-    #     # 根据原始look_at函数，旋转矩阵由x_axis, y_axis, z_axis组成
-    #     r_mat = np.stack([x_axis, y_axis, z_axis], axis=1)
-        
-    #     # 6. 构建变换矩阵，将位置向量添加为最后一列
-    #     RT = np.concatenate([r_mat, position.reshape(3, 1)], axis=1)
-        
-    #     # 7. 转换为torch.Tensor
-    #     return torch.tensor(RT, dtype=torch.float32)
     def fixed_world_coordinate_system(self, u, v, radius=1.0):
         """
         創建一個固定的世界座標系統，其中 X 軸與訓練模型的起始點對齊
@@ -274,28 +217,16 @@ class Generator(object):
         
         # sample radius if necessary
         radius = self.radius
-        # if isinstance(radius, tuple):
-        #     radius = np.random.uniform(*radius)
+        if isinstance(radius, tuple):
+            radius = np.random.uniform(*radius)
         
-        # if u == 0 and v == 0.5:  # 完全固定一個基準視角
-        #     # 明確定義相機位置
-        #     loc = np.array([radius, 0, 0])  # X軸正方向
-            
-        #     # 明確定義相機旋轉矩陣
-        #     # 確保X軸指向相機右方，Y軸指向相機上方，Z軸指向相機後方
-        #     R = np.array([
-        #         [0, 0, 1],  # 右方向
-        #         [1, 0, 0],  # 上方向 
-        #         [0, 1, 0]  # 後方向（面向原點）
-        #     ])
-        # else:
-        #     # 正常的球面取樣
-        #     loc = to_sphere(u, v) * radius
-        #     R = look_at(loc)[0]
+        # 正常的球面取樣
+        loc = to_sphere(u, v) * radius
+        R = look_at(loc)[0]
         
-        # RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
-        # RT = torch.Tensor(RT.astype(np.float32))
-        RT = self.fixed_world_coordinate_system(u, v, radius)
+        RT = np.concatenate([R, loc.reshape(3, 1)], axis=1)
+        RT = torch.Tensor(RT.astype(np.float32))
+        # RT = self.fixed_world_coordinate_system(u, v, radius)
         
         return RT
     

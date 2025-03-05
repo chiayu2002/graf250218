@@ -98,6 +98,7 @@ class NeRF(nn.Module):
             self.feature_linear = nn.Linear(W, W)
             self.alpha_linear = nn.Linear(W, 1)
             self.rgb_linear = nn.Linear(W//2, 3)
+            self.angle_linear = nn.Linear(W//2, 6)
         else:
             self.output_linear = nn.Linear(W, output_ch)
 
@@ -110,9 +111,9 @@ class NeRF(nn.Module):
         repeat_times = h.shape[0] // label_embedding.shape[0]
         label_embedding = label_embedding.repeat(repeat_times, 1)
 
-        # input_o, input_shape = torch.split(input_pts, [63, 256], dim=-1)
-        # conditioned_shape = input_shape * label_embedding
-        # h = torch.cat([input_o, conditioned_shape],dim=-1)
+        input_o, input_shape = torch.split(input_pts, [63, 256], dim=-1)
+        conditioned_shape = input_shape * label_embedding
+        h = torch.cat([input_o, conditioned_shape],dim=-1)
         # h = input
         for i, l in enumerate(self.pts_linears):
             h = self.pts_linears[i](h)
@@ -132,7 +133,8 @@ class NeRF(nn.Module):
                 h = relu(h)
 
             rgb = self.rgb_linear(h)
-            outputs = torch.cat([rgb, alpha], -1)
+            angle = self.angle_linear(h)
+            outputs = torch.cat([rgb, alpha], -1), angle
         else:
             outputs = self.output_linear(h)
 
